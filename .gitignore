@@ -10,8 +10,3 @@ __pycache__/
 .venv/
 env/
 venv/
-
-# Data files
-app/data/combined.db
-app/data/macro_data.db
-app/data/macro.db
