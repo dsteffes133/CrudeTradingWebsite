@@ -4,98 +4,148 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
 
 from app.modules.vmd_models import (
+    decompose_vmd,
     prepare_huber_data, train_huber,
     prepare_lstm_data, train_lstm
 )
-from app.modules.data_utils import load_aligned
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-st.sidebar.header("🔬 VMD + ML Models")
+st.set_page_config(page_title="VMD + Regression/LSTM", layout="wide")
+st.title("🔬 VMD Decomposition & Modeling")
 
-# 1) Select table & series
-TABLES = {
-    "Macro / Market":        "bond_stocks",
-    "US Imports / Exports":  "us_imports_exports",
-    "Global IE":             "global_imports_exports",
-    "WPR Sliding":           "wpr_sliding",
-    "Pricing Vector":        "pricing_vector",
-    "Pipeline Daily":        "daily_pipeline",
-    "Movement Daily":        "daily_movement",
-}
-table_name = st.sidebar.selectbox("Table", list(TABLES.keys()))
-tbl = TABLES[table_name]
-df = load_aligned(tbl)
+# ── Sidebar ────────────────────────────────────────────────────────────────
+st.sidebar.header("Model Configuration")
 
-series = st.sidebar.selectbox("Series", df.select_dtypes("number").columns.tolist())
+# 1) Pick your table & series
+TABLE = st.sidebar.selectbox("Data Table", [
+    "bond_stocks", "us_imports_exports", "global_imports_exports"
+])
+SERIES = st.sidebar.text_input("Column name in table", value="VIX (Volatility)")
 
 # 2) VMD params
 st.sidebar.subheader("VMD settings")
-alpha = st.sidebar.number_input("alpha", 100.0, 1e4, value=2000.0)
-K     = st.sidebar.slider("Number of modes K", 2, 10, value=5)
-init  = st.sidebar.radio("init", [0,1,2], index=1)
-tol   = st.sidebar.number_input("tol", 1e-9, 1e-3, value=1e-7, format="%.0e")
-vmd_kwargs = dict(alpha=alpha, K=K, init=init, tol=tol)
+alpha = st.sidebar.number_input("alpha", value=2000.0)
+K     = st.sidebar.slider("Number of modes (K)", 2, 10, 5)
+tol   = st.sidebar.number_input("tolerance", value=1e-7, format="%.0e")
 
-# 3) ML settings
-st.sidebar.subheader("Data / ML settings")
-lookback   = st.sidebar.number_input("Lookback days", 5, 60, value=30)
-horizon    = st.sidebar.number_input("Horizon (days ahead)", 1, 30, value=7)
-split_date = st.sidebar.date_input("Train/test split date", datetime(2023,1,1))
+# 3) Forecast settings
+st.sidebar.subheader("Forecast settings")
+lookback   = st.sidebar.number_input("Lookback days", 30, 90, 30)
+horizon    = st.sidebar.number_input("Horizon days ahead", 1, 30, 1)
+split_date = st.sidebar.date_input("Train/Test split date", value=pd.to_datetime("2023-01-01"))
 
-model_type = st.sidebar.radio("Model", ["Huber", "LSTM"])
-if model_type == "Huber":
-    hub_params = {
-        "epsilon": st.sidebar.number_input("Huber epsilon", 1.1, 2.0, 1.35),
-        "alpha":   st.sidebar.number_input("Huber alpha",   0.0001, 1.0, 0.0001, format="%.4f"),
-        "max_iter":st.sidebar.number_input("max_iter", 100, 10000, 100)
-    }
-else:
-    units      = st.sidebar.number_input("LSTM units", 8, 128, 32)
-    epochs     = st.sidebar.number_input("Epochs", 10, 200, 50)
-    batch_size = st.sidebar.number_input("Batch size", 8, 128, 16)
+# 4) Choose models
+st.sidebar.subheader("Which models?")
+do_huber = st.sidebar.checkbox("Huber Regressor", value=True)
+do_lstm  = st.sidebar.checkbox("LSTM", value=True)
+run_btn  = st.sidebar.button("▶ Run VMD + Models")
 
-if st.sidebar.button("▶️ Train & Evaluate"):
-    if model_type == "Huber":
+# ── Main ────────────────────────────────────────────────────────────────────
+if run_btn:
+    # 1) Load & decompose
+    df = decompose_vmd(
+        series=pd.read_sql_table(TABLE, con=st.experimental_get_query_params().get('engine', None))[SERIES],
+        alpha=alpha, K=K, tol=tol
+    )
+    st.markdown(f"### VMD Components (first 5 modes)")
+    st.line_chart(df.iloc[:, :5])
+
+    if do_huber:
+        st.markdown("## 🤖 Huber Regressor")
         X_tr, y_tr, X_te, y_te = prepare_huber_data(
-            tbl, series, lookback, horizon, split_date.isoformat(), vmd_kwargs
+            TABLE, SERIES,
+            lookback=int(lookback), horizon=int(horizon),
+            split_date=str(split_date), vmd_kwargs=dict(alpha=alpha, K=K, tol=tol, tau=0, DC=0, init=1)
         )
-        model = train_huber(X_tr, y_tr, **hub_params)
+        hub = train_huber(X_tr, y_tr)
+        y_pred_te = hub.predict(X_te)
+        y_pred_tr = hub.predict(X_tr)
 
-        # predict
-        y_pred_tr = model.predict(X_tr)
-        y_pred_te = model.predict(X_te)
-
-    else:  # LSTM
-        X_tr, y_tr, X_te, y_te = prepare_lstm_data(
-            tbl, series, lookback, horizon, split_date.isoformat(), vmd_kwargs
-        )
-        n_features = X_tr.shape[2]
-        model = train_lstm(X_tr, y_tr, lookback, n_features, units, epochs, batch_size)
-
-        y_pred_tr = model.predict(X_tr).flatten()
-        y_pred_te = model.predict(X_te).flatten()
-
-    # metrics
-    def metrics(y_true, y_pred):
-        mae  = mean_absolute_error(y_true, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-        return mae, rmse
-
-    train_mae, train_rmse = metrics(y_tr, y_pred_tr)
-    test_mae,  test_rmse  = metrics(y_te, y_pred_te)
-
-    st.subheader(f"{model_type} Results for `{series}`")
-    st.write(f"**Train** → MAE: {train_mae:.3f}, RMSE: {train_rmse:.3f}")
-    st.write(f"**Test**  → MAE: {test_mae:.3f},  RMSE: {test_rmse:.3f}")
-
-    # optional plot for LSTM
-    if model_type == "LSTM":
-        fig, ax = plt.subplots()
+        # 1) Backtest: Actual vs Predicted
+        fig, ax = plt.subplots(figsize=(8, 3))
         ax.plot(y_te.index, y_te, label="Actual")
         ax.plot(y_te.index, y_pred_te, label="Predicted")
-        ax.set_title("Test Set: Actual vs Predicted")
+        ax.set_title("Huber: Test Set Actual vs Predicted")
         ax.legend()
         st.pyplot(fig)
+
+        # 2) Residuals over time
+        resid = y_te - y_pred_te
+        fig, ax = plt.subplots(figsize=(8, 2))
+        ax.plot(resid.index, resid, color="tab:orange")
+        ax.axhline(0, color="k", lw=1)
+        ax.set_title("Huber Residuals (Test)")
+        st.pyplot(fig)
+
+        # 3) Error distribution
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.hist(resid, bins=30, edgecolor="k")
+        ax.set_title("Huber Error Distribution")
+        st.pyplot(fig)
+
+        # 4) Scatter Pred vs Actual
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.scatter(y_te, y_pred_te, alpha=0.6)
+        ax.plot([y_te.min(), y_te.max()], [y_te.min(), y_te.max()], 'r--')
+        ax.set_xlabel("Actual"); ax.set_ylabel("Predicted")
+        ax.set_title("Predicted vs. Actual (Huber)")
+        st.pyplot(fig)
+
+    if do_lstm:
+        st.markdown("## 🤖 LSTM Model")
+        X_tr, y_tr, X_te, y_te = prepare_lstm_data(
+            TABLE, SERIES,
+            lookback=int(lookback), horizon=int(horizon),
+            split_date=str(split_date), vmd_kwargs=dict(alpha=alpha, K=K, tol=tol, tau=0, DC=0, init=1)
+        )
+        model = train_lstm(X_tr, y_tr, lookback=int(lookback), K=K, units=32, epochs=50)
+        y_pred_te = model.predict(X_te).flatten()
+
+        # 1) Training history (if available)
+        if hasattr(model, 'history'):
+            hist = model.history.history
+            fig, ax = plt.subplots(figsize=(6, 2))
+            ax.plot(hist['loss'], label="train loss")
+            ax.plot(hist['val_loss'], label="val loss")
+            ax.set_title("LSTM Training History")
+            ax.legend()
+            st.pyplot(fig)
+
+        # 2) Backtest: Actual vs Predicted
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.plot(y_te.index, y_te, label="Actual")
+        ax.plot(y_te.index, y_pred_te, label="Predicted")
+        ax.set_title("LSTM: Test Set Actual vs Predicted")
+        ax.legend()
+        st.pyplot(fig)
+
+        # 3) Residuals
+        resid_l = y_te - y_pred_te
+        fig, ax = plt.subplots(figsize=(8, 2))
+        ax.plot(resid_l.index, resid_l)
+        ax.axhline(0, color="k", lw=1)
+        ax.set_title("LSTM Residuals (Test)")
+        st.pyplot(fig)
+
+        # 4) Error distribution
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.hist(resid_l, bins=30, edgecolor="k")
+        ax.set_title("LSTM Error Distribution")
+        st.pyplot(fig)
+
+        # 5) Modes + prediction overlay
+        comps = decompose_vmd(
+            series=pd.read_sql_table(TABLE, con=st.experimental_get_query_params().get('engine', None))[SERIES],
+            alpha=alpha, K=K, tol=tol
+        )
+        # sum of selected modes vs. actual
+        recon = comps.sum(axis=1)
+        fig, ax = plt.subplots(figsize=(8, 2))
+        ax.plot(recon.index, recon, label="Reconstruction")
+        ax.plot(y_te.index, y_te, label="Actual", alpha=0.6)
+        ax.set_title("Reconstructed Signal vs Actual")
+        ax.legend()
+        st.pyplot(fig)
+
+    st.success("✅ Models trained and plots rendered.")
