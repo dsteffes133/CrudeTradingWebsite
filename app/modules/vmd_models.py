@@ -27,7 +27,6 @@ def decompose_vmd(
     u, u_hat, omega = VMD(
         series.values, alpha, tau, K, DC, init, tol
     )
-    # u is shape (K, T)
     comp_df = pd.DataFrame(
         u.T,
         index=series.index,
@@ -44,35 +43,31 @@ def prepare_huber_data(
     vmd_kwargs: dict
 ):
     """
-    Decompose `series` via VMD, extract features for each mode,
-    stack them, and return X_train, y_train, X_test, y_test.
+    Decompose `series` via VMD, extract aggregated features for each mode,
+    and return X_train, y_train, X_test, y_test for a HuberRegressor.
     """
-    full = load_aligned(table)[series].ffill()
+    # 1️⃣ load the full series & decompose
+    full  = load_aligned(table)[series].ffill()
     comps = decompose_vmd(full, **vmd_kwargs)
 
-    # extract features for each mode
-    feat_list = []
-    for col in comps.columns:
-        # uses same lookback features as RF
-        f = extract_aggregated_features(
-            table=None,  # we bypass table logic below
-            series=col,
-            lookback=lookback
-        ) if False else None  # placeholder
-        # instead, we need a helper that builds features from comps[col] directly:
-        # for brevity, we just reuse extract_aggregated_features by temporarily
-        # injecting comps[col] into a DataFrame, but you should instead call
-        # a variant that takes a pd.Series.
-        raise NotImplementedError("Extract features from comps[col] here")
+    # 2️⃣ for each mode, build the same rolling/window features
+    feat_dfs = []
+    for mode in comps.columns:
+        f = extract_aggregated_features(comps[mode], lookback)
+        f.columns = [f"{mode}__{c}" for c in f.columns]
+        feat_dfs.append(f)
 
-    # once you have feat_list of DataFrames, do:
-    X = pd.concat(feat_list, axis=1)
-    y = full.shift(-horizon).loc[X.index].dropna()
-    df = X.join(y.rename("target")).dropna()
+    # 3️⃣ concatenate all mode‐features horizontally
+    X_full = pd.concat(feat_dfs, axis=1)
 
+    # 4️⃣ build target shifted by horizon and align
+    y_full = full.shift(-horizon).reindex(X_full.index)
+    df     = pd.concat([X_full, y_full.rename("target")], axis=1).dropna()
+
+    # 5️⃣ split by date
     cutoff = pd.to_datetime(split_date)
-    train = df[df.index <= cutoff]
-    test  = df[df.index > cutoff]
+    train  = df[df.index <= cutoff]
+    test   = df[df.index >  cutoff]
 
     return (
         train.drop(columns="target"),
@@ -100,49 +95,63 @@ def prepare_lstm_data(
     vmd_kwargs: dict
 ):
     """
-    Decompose `series` via VMD, then construct X (shape [N, lookback, K])
-    and y (shape [N,]) for LSTM. Returns X_train, y_train, X_test, y_test.
+    Decompose `series` via VMD, extract aggregated features for each mode,
+    stack them as a sequence for LSTM, and return X_train/y_train/X_test/y_test.
     """
-    full = load_aligned(table)[series].ffill()
+    full  = load_aligned(table)[series].ffill()
     comps = decompose_vmd(full, **vmd_kwargs)
-    K = comps.shape[1]
+    K     = comps.shape[1]
 
-    X, y = [], []
-    idxs = []
-    for i in range(lookback-1, len(full)-horizon):
-        window = comps.iloc[i-lookback+1:i+1].values  # (lookback, K)
-        X.append(window)
-        y.append(full.iloc[i+horizon])
-        idxs.append(full.index[i])
+    # build per‐mode feature DataFrames
+    feat_dfs = []
+    for mode in comps.columns:
+        f = extract_aggregated_features(comps[mode], lookback)
+        f.columns = [f"{mode}__{c}" for c in f.columns]
+        feat_dfs.append(f)
 
-    X = np.stack(X)  # (N, lookback, K)
-    y = np.array(y)
-    index = pd.to_datetime(idxs)
+    # merge into one DataFrame, index aligned
+    X_df = pd.concat(feat_dfs, axis=1).dropna()
+    y_df = full.shift(-horizon).reindex(X_df.index).dropna()
+    common_idx = X_df.index.intersection(y_df.index)
+    X_df, y_df = X_df.loc[common_idx], y_df.loc[common_idx]
+
+    # now reshape each row into a (lookback, K) window
+    modes = [col.split("__")[0] for col in X_df.columns]
+    unique_modes = sorted(set(modes), key=lambda m: int(m.split("_")[-1]))
+    # collect feature‐blocks per time step
+    X_windows = []
+    y_vals    = []
+    idxs      = []
+    for i in range(lookback - 1, len(X_df)):
+        win = X_df.iloc[i - lookback + 1 : i + 1].values.reshape(lookback, -1)
+        X_windows.append(win)
+        y_vals.append(y_df.iloc[i])
+        idxs.append(common_idx[i])
+
+    X = np.stack(X_windows)  # shape (N, lookback, features)
+    y = np.array(y_vals)
+    idx = pd.to_datetime(idxs)
 
     # split
     cutoff = pd.to_datetime(split_date)
-    mask = index <= cutoff
-    X_train, X_test = X[mask], X[~mask]
-    y_train, y_test = y[mask], y[~mask]
-
-    return (X_train, y_train, X_test, y_test)
+    mask   = idx <= cutoff
+    return X[mask], y[mask], X[~mask], y[~mask]
 
 def train_lstm(
     X_train: np.ndarray,
     y_train: np.ndarray,
     lookback: int,
-    K: int,
+    n_features: int,
     units: int = 32,
     epochs: int = 50,
     batch_size: int = 16
 ):
     """
     Build & train a simple LSTM:
-      Input(shape=(lookback, K)) → LSTM(units) → Dense(1)
-    Returns the trained Keras model.
+      Input(shape=(lookback, n_features)) → LSTM(units) → Dense(1)
     """
     model = Sequential([
-        Input(shape=(lookback, K)),
+        Input(shape=(lookback, n_features)),
         LSTM(units),
         Dense(1)
     ])
