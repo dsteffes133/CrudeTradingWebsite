@@ -1,0 +1,17 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+
+# VSCode settings
+.vscode/
+
+# Virtualenv folder
+.venv/
+env/
+venv/
+
+# Data files
+app/data/combined.db
+app/data/macro_data.db
+app/data/macro.db
