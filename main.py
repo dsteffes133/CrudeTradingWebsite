@@ -40,7 +40,7 @@ def run_kpler_subprocess():
     try:
         # only create the venv once
         if not VENV_PY.exists():
-            subprocess.run([str(INIT_SCRIPT)], check=True)
+            subprocess.run(["bash", str(INIT_SCRIPT)], check=True)
         # now invoke our helper inside that dedicated venv
         subprocess.run(
             [str(VENV_PY), str(FETCH_SCRIPT)],
