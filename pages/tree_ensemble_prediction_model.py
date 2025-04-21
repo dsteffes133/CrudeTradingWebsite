@@ -12,7 +12,7 @@ from app.modules.ml_utils import (
     evaluate_model
 )
 
-st.sidebar.header("🤖 ML Forecasting")
+st.sidebar.header("🤖 Random Forest Forecasting")
 
 # 1️⃣ Responder series & their source table
 RESPONDERS = {
@@ -59,7 +59,7 @@ max_depth     = st.sidebar.slider("max_depth", 5, 30, 10, step=5)
 train_btn    = st.sidebar.button("▶️ Train & Evaluate")
 forecast_btn = st.sidebar.button("🔮 Forecast Forward")
 
-st.title("📈 ML Forecasting")
+st.title("📈 Random Forest Forecasting")
 
 if train_btn:
     with st.spinner("Preparing data…"):
