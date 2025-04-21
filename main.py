@@ -2,14 +2,14 @@
 Streamlit front‑end for Integrated Trading Analytics System
 ===========================================================
 • Upload latest Excel files (WPR, CRUDE SD, VectorDBPricing)
-• Trigger API refresh (Kpler + FRED)
+• Trigger API refresh (Kpler + FRED) via isolated subprocess
 • Show simple status / row counts after each action
 
 Launch with:
-    streamlit run streamlit_app.py
+    streamlit run main.py
 """
-
 import os
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -20,35 +20,51 @@ from sqlalchemy import create_engine
 
 # project imports
 from app.modules import data_processing as dp
-
-load_dotenv()  # pick up KPLER / FRED creds
-
-# -----------------------------------------------------------------------------
-# Config
-# -----------------------------------------------------------------------------
 from app.modules.data_processing import DB_PATH, ENGINE
 
-# -----------------------------------------------------------------------------
-# Helper utilities
-# -----------------------------------------------------------------------------
+load_dotenv()  # pick up KPLER_EMAIL / KPLER_TOKEN
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Setup for isolated Kpler subprocess
+# ──────────────────────────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).resolve().parent
+INIT_SCRIPT  = PROJECT_ROOT / "init_kpler_venv.sh"
+VENV_PY      = PROJECT_ROOT / "kpler-env" / "bin" / "python"
+FETCH_SCRIPT = PROJECT_ROOT / "kpler_fetch.py"
+
+def run_kpler_subprocess():
+    """Bootstrap a dedicated venv for Kpler SDK and run the fetch helper."""
+    try:
+        # 1) create & populate kpler-env if needed
+        subprocess.run([str(INIT_SCRIPT)], check=True)
+        # 2) invoke our helper inside that venv
+        subprocess.run(
+            [str(VENV_PY), str(FETCH_SCRIPT)],
+            check=True,
+            cwd=str(PROJECT_ROOT)
+        )
+    except subprocess.CalledProcessError:
+        st.error("⚠️  Kpler data refresh failed.")
+        st.stop()
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Streamlit helpers
+# ──────────────────────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def _count_rows(table: str) -> int:
     try:
         with ENGINE.connect() as conn:
             result = conn.exec_driver_sql(f"SELECT COUNT(*) FROM {table}")
-            # scalar_one(): returns the single scalar result (or errors if more)
             return result.scalar_one()
     except Exception:
         return 0
 
-
-
 def _success(msg: str):
     st.toast(msg, icon="✅")
 
-# -----------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 # Sidebar controls
-# -----------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("📡  Data Pipelines")
     with st.form("full_pipeline"):
@@ -59,7 +75,7 @@ with st.sidebar:
 
     if run_all:
         with st.spinner("Ingesting files and refreshing API…"):
-            # 1. Excel imports (if provided)
+            # 1) Excel imports (if provided)
             if uploaded_wpr:
                 dp.import_weekly_petroleum_report(uploaded_wpr, save_sql=True)
             if uploaded_pipe:
@@ -67,22 +83,21 @@ with st.sidebar:
             if uploaded_price:
                 dp.import_vector_db_pricing(uploaded_price, save_sql=True)
 
-            # 2. Pull any new API data
-            dp.update_all()
+            # 2) Pull Kpler + FRED via isolated subprocess
+            run_kpler_subprocess()
 
-            # 3. Clear cached row‑counts so the dashboard updates
+            # 3) Clear cached row‑counts so the dashboard updates
             _count_rows.clear()
 
         st.success("All data ingested and refreshed ✅")
 
-# -----------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 # Main area
-# -----------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 st.title("SOUTHBOW TRADING ANALYTICS")
-
 st.markdown("Select a task in the sidebar →")
 
-# --- Handle uploads -----------------------------------------------------------
+# --- Handle individual uploads -----------------------------------------------
 if uploaded_wpr is not None:
     with st.spinner("Importing Weekly Petroleum Report …"):
         truth, sliding = dp.import_weekly_petroleum_report(uploaded_wpr)
@@ -98,9 +113,7 @@ if uploaded_price is not None:
         merged = dp.import_vector_db_pricing(uploaded_price)
     _success("Pricing vector imported ✔")
 
-
-
-# --- Status dashboard ---------------------------------------------------------
+# --- Status dashboard --------------------------------------------------------
 st.subheader("📊  Current table sizes")
 
 status_cols = [
@@ -115,7 +128,9 @@ status_cols = [
 ]
 
 rows = {nice: _count_rows(tbl) for tbl, nice in status_cols}
-
 st.dataframe(pd.Series(rows, name="rows").rename_axis("Table"))
 
-st.caption(f"Database path: `{DB_PATH}`  •  Last refreshed: {datetime.now():%Y-%m-%d %H:%M:%S}")
+st.caption(
+    f"Database path: `{DB_PATH}`  •  "
+    f"Last refreshed: {datetime.now():%Y-%m-%d %H:%M:%S}"
+)
