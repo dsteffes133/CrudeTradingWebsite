@@ -25,7 +25,6 @@ def load_all_data() -> pd.DataFrame:
     for display_name, (tbl, prefix) in tables.items():
         df = load_aligned(tbl).add_prefix(prefix)
         dfs.append(df)
-    # concatenate side by side; they share the same MASTER_INDEX
     return pd.concat(dfs, axis=1)
 
 # —————————————————————————————————————————————————————————————
@@ -34,7 +33,7 @@ st.sidebar.header("📊 Correlation Explorer")
 # 1️⃣ Load the combined DataFrame once
 df_all = load_all_data()
 
-# 2️⃣ Step 1: pick a data category
+# 2️⃣ Pick a data category
 CATEGORY_TO_PREFIX = {
     "Macro & Market":        "macro__",
     "US Imports / Exports":  "usie__",
@@ -50,31 +49,28 @@ category = st.sidebar.selectbox(
 )
 prefix = CATEGORY_TO_PREFIX[category]
 
-# 3️⃣ Step 2: pick a variable within that category
-candidates = [col for col in df_all.columns if col.startswith(prefix)]
-if not candidates:
-    st.error(f"No columns found for category {category}")
+# 3️⃣ Find all numeric columns in that category
+numeric_cols = [
+    col for col in df_all.columns
+    if col.startswith(prefix) and pd.api.types.is_numeric_dtype(df_all[col])
+]
+if not numeric_cols:
+    st.error(f"No numeric columns found for category {category}")
     st.stop()
 
-# 1) pull out only the float/int columns
-numeric_cols = df_all.select_dtypes(include="number").columns.tolist()
-
-# 2) restrict the sidebar picker to those columns
+# 4️⃣ Let the user pick their target variable
 target = st.sidebar.selectbox("Select target variable", sorted(numeric_cols))
 
-# 3) compute corr on just that subset
+# 5️⃣ Compute one numeric‑only Pearson correlation matrix, pull out our target
 corr_full = (
-    df_all[numeric_cols]
-      .corr(method="pearson")
+    df_all
+      .corr(method="pearson", numeric_only=True)
       [target]
-      .drop(labels=[target])
+      .drop(target)
 )
 
-# 4️⃣ Compute correlations of target vs. all others
-corr_full = df_all.corr(method="pearson")[target].drop(labels=[target])
-
-# 5️⃣ Pick the top 15 by absolute correlation
-top15 = corr_full.abs().nlargest(15).index
+# 6️⃣ Pick the top 15 drivers by absolute correlation
+top15    = corr_full.abs().nlargest(15).index
 top_corr = corr_full.loc[top15]
 
 # —————————————————————————————————————————————————————————————
@@ -84,13 +80,13 @@ st.markdown(
     f"across **all tables**"
 )
 
-# — 6) Table & download —
+# — Table & Download Button —
 st.subheader("Top 15 Correlated Variables")
 table = (
     top_corr
-    .rename_axis("variable")
-    .reset_index(name="correlation")
-    .assign(correlation=lambda d: d["correlation"].round(3))
+      .rename_axis("variable")
+      .reset_index(name="correlation")
+      .assign(correlation=lambda df: df["correlation"].round(3))
 )
 st.dataframe(table, use_container_width=True)
 
