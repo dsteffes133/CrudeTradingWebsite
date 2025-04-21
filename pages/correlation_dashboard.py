@@ -56,7 +56,19 @@ if not candidates:
     st.error(f"No columns found for category {category}")
     st.stop()
 
-target = st.sidebar.selectbox("Select target variable", sorted(candidates))
+# 1) pull out only the float/int columns
+numeric_cols = df_all.select_dtypes(include="number").columns.tolist()
+
+# 2) restrict the sidebar picker to those columns
+target = st.sidebar.selectbox("Select target variable", sorted(numeric_cols))
+
+# 3) compute corr on just that subset
+corr_full = (
+    df_all[numeric_cols]
+      .corr(method="pearson")
+      [target]
+      .drop(labels=[target])
+)
 
 # 4️⃣ Compute correlations of target vs. all others
 corr_full = df_all.corr(method="pearson")[target].drop(labels=[target])
