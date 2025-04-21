@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
+# run this at project root (and add it to .streamlit/run.sh so Streamlit Cloud picks it up)
+
 set -e
 
-# only create once
-if [ ! -d kpler-env ]; then
-  python3 -m venv kpler-env
-fi
+# 1) remove old if present
+rm -rf kplerenv
 
-# install exactly what Kpler needs
-./kpler-env/bin/pip install --upgrade pip
-./kpler-env/bin/pip install -r kpler_requirements.txt
+# 2) make a fresh venv
+python3 -m venv kplerenv
+
+# 3) install just the Kpler stack
+kplerenv/bin/pip install -r kpler_requirements.txt
 

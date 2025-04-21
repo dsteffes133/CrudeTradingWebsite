@@ -33,18 +33,22 @@ VENV_PY      = PROJECT_ROOT / "kpler-env" / "bin" / "python"
 FETCH_SCRIPT = PROJECT_ROOT / "kpler_fetch.py"
 
 def run_kpler_subprocess():
-    """Bootstrap a dedicated venv for Kpler SDK and run the fetch helper."""
+    """
+    1) Bootstraps `kpler-env` venv (if not already present) via init_kpler_venv.sh
+    2) Runs kpler_fetch.py inside that venv, which writes to combined.db
+    """
     try:
-        # 1) create & populate kpler-env if needed
-        subprocess.run([str(INIT_SCRIPT)], check=True)
-        # 2) invoke our helper inside that venv
+        # only create the venv once
+        if not VENV_PY.exists():
+            subprocess.run([str(INIT_SCRIPT)], check=True)
+        # now invoke our helper inside that dedicated venv
         subprocess.run(
             [str(VENV_PY), str(FETCH_SCRIPT)],
             check=True,
             cwd=str(PROJECT_ROOT)
         )
     except subprocess.CalledProcessError:
-        st.error("⚠️  Kpler data refresh failed.")
+        st.error("⚠️ Kpler data refresh failed. Check logs in kpler_fetch.py")
         st.stop()
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -98,24 +102,23 @@ st.title("SOUTHBOW TRADING ANALYTICS")
 st.markdown("Select a task in the sidebar →")
 
 # --- Handle individual uploads -----------------------------------------------
-if uploaded_wpr is not None:
+if 'uploaded_wpr' in locals() and uploaded_wpr is not None:
     with st.spinner("Importing Weekly Petroleum Report …"):
         truth, sliding = dp.import_weekly_petroleum_report(uploaded_wpr)
     _success(f"WPR imported ({len(truth):,} truth rows)")
 
-if uploaded_pipe is not None:
+if 'uploaded_pipe' in locals() and uploaded_pipe is not None:
     with st.spinner("Importing CRUDE SD pipeline / movements …"):
         mv, pl = dp.import_pipeline_flow_excel(uploaded_pipe)
     _success("Pipeline + Movements imported ✔")
 
-if uploaded_price is not None:
+if 'uploaded_price' in locals() and uploaded_price is not None:
     with st.spinner("Importing VectorDBPricing.xlsm …"):
         merged = dp.import_vector_db_pricing(uploaded_price)
     _success("Pricing vector imported ✔")
 
 # --- Status dashboard --------------------------------------------------------
 st.subheader("📊  Current table sizes")
-
 status_cols = [
     ("bond_stocks", "Macro / Market"),
     ("us_imports_exports", "US Imports / Exports"),
@@ -126,7 +129,6 @@ status_cols = [
     ("daily_movement", "Movement Daily"),
     ("pricing_vector", "Pricing Vector"),
 ]
-
 rows = {nice: _count_rows(tbl) for tbl, nice in status_cols}
 st.dataframe(pd.Series(rows, name="rows").rename_axis("Table"))
 
