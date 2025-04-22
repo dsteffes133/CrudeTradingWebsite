@@ -1,5 +1,3 @@
-# app/modules/vmd_models.py
-
 import numpy as np
 import pandas as pd
 from vmdpy import VMD
@@ -20,15 +18,13 @@ def decompose_vmd(
     init: int    = 1,
     tol: float   = 1e-7
 ) -> pd.DataFrame:
-    u, u_hat, omega = VMD(
-        series.values, alpha, tau, K, DC, init, tol
-    )
-    df = pd.DataFrame(
+    """Run VMD and return K mode components as a DataFrame."""
+    u, u_hat, omega = VMD(series.values, alpha, tau, K, DC, init, tol)
+    return pd.DataFrame(
         u.T,
         index=series.index,
         columns=[f"vmd_mode_{i+1}" for i in range(u.shape[0])]
     )
-    return df
 
 def prepare_vmd_ml_data(
     table: str,
@@ -38,44 +34,48 @@ def prepare_vmd_ml_data(
     split_frac: float = 0.85,
     vmd_kwargs: dict = dict(alpha=2000.0, tau=0.0, K=5, DC=0, init=1, tol=1e-7)
 ):
-    # 1) load & ffill
+    """
+    Build X/y arrays for both Huber (flattened) and LSTM (3D) training:
+      • X: shape (N, lookback, D) where D = K + engineered_feature_count
+      • y: shape (N,)
+    """
+    # 1) load & forward‑fill
     full = load_aligned(table)[series].ffill()
-    # 2) VMD modes
+    # 2) VMD decomposition
     comps = decompose_vmd(full, **vmd_kwargs)
     # 3) engineered features on raw series
     feats = extract_aggregated_features(full, lookback)
-    # align
+    # 4) align and drop NaNs
     data = pd.concat([comps, feats], axis=1).dropna()
-    dates = data.index
     n = len(data) - horizon - lookback + 1
 
     X, y = [], []
-    for i in range(lookback-1, lookback-1 + n):
-        window = data.iloc[i-lookback+1: i+1].values  # (lookback, K+F)
+    for i in range(lookback - 1, lookback - 1 + n):
+        window = data.iloc[i - lookback + 1 : i + 1].values  # (lookback, D)
         X.append(window)
-        y.append(float(full.iloc[i+horizon]))
-    X = np.stack(X)    # (N, lookback, D)
-    y = np.array(y)    # (N,)
+        y.append(float(full.iloc[i + horizon]))
+    X = np.stack(X)  # (N, lookback, D)
+    y = np.array(y)  # (N,)
 
-    # train/test split
+    # train/test split by fraction
     split_i = int(len(X) * split_frac)
-    X_tr, X_te = X[:split_i], X[split_i:]
-    y_tr, y_te = y[:split_i], y[split_i:]
-
-    return X_tr, y_tr, X_te, y_te
+    return X[:split_i], y[:split_i], X[split_i:], y[split_i:]
 
 def train_huber(X_train, y_train, **hub_kwargs) -> HuberRegressor:
+    """
+    Train a HuberRegressor.
+    Accepts either 3D (n, lookback, D) → flattens to (n, lookback*D)
+    or 2D (n, D) → uses directly.
+    """
     arr = np.asarray(X_train)
-    # if 3D, flatten window & feature dims
     if arr.ndim == 3:
         n, L, D = arr.shape
         Xf = arr.reshape(n, L * D)
-    # if 2D, use as‑is
     elif arr.ndim == 2:
         Xf = arr
     else:
         raise ValueError(f"train_huber got array with ndim={arr.ndim}")
-    
+
     hub = HuberRegressor(**hub_kwargs)
     hub.fit(Xf, y_train)
     return hub
@@ -89,6 +89,9 @@ def train_lstm(
     epochs: int = 50,
     batch_size: int = 16
 ):
+    """
+    Build & train a simple LSTM on 3D input (n, lookback, num_features).
+    """
     model = Sequential([
         Input(shape=(lookback, num_features)),
         LSTM(units),
