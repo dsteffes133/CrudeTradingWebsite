@@ -11,10 +11,12 @@ from sklearn.linear_model import HuberRegressor
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Input
 from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import StandardScaler
 
 from app.modules.data_utils import load_aligned
 from app.modules.ml_utils import extract_aggregated_features
 from app.modules.vmd_models import train_lstm
+from app.modules.vmd_models import train_huber
 
 # —————————————————————————————————————————————————————————————
 st.sidebar.header("⚙️ Model Configuration")
@@ -119,43 +121,66 @@ series = df_full
 
 # 5) Fit & predict
 if model_type == "Huber":
-    X_tr, y_tr, X_te, y_te = prepare_huber(series, lookback, horizon, split_date, alpha, K, tol)
-    model  = HuberRegressor().fit(X_tr, y_tr)
-    y_pred = pd.Series(model.predict(X_te), index=y_te.index)
-else:
-    X_tr, y_tr_arr, X_te, y_te_arr, idx_tr, idx_te = prepare_lstm(
+    X_tr, y_tr, X_te, y_te = prepare_huber(
         series, lookback, horizon, split_date, alpha, K, tol
     )
-    num_features = X_tr.shape[2]
+    model     = train_huber(X_tr, y_tr)
+    y_pred_te = pd.Series(model.predict(X_te), index=y_te.index)
+else:
+    X_tr, y_tr, X_te, y_te, idx_tr, idx_te = prepare_lstm(
+        series, lookback, horizon, split_date, alpha, K, tol
+    )
+    model     = train_lstm(
+        X_tr, y_tr,
+        lookback=lookback,
+        num_features=X_tr.shape[2],
+        units=32, epochs=50, batch_size=16
+    )
+    y_pred_te = pd.Series(model.predict(X_te).flatten(), index=idx_te)
 
-# 1) scale
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler().fit(X_tr.reshape(-1, num_features))
-X_tr_s = scaler.transform(X_tr.reshape(-1, num_features)).reshape(X_tr.shape)
-X_te_s = scaler.transform(X_te.reshape(-1, num_features)).reshape(X_te.shape)
+# === now flatten & scale X ===
+n_tr, L, D = X_tr.shape
 
-y_scaler = StandardScaler().fit(y_tr.values.reshape(-1,1))
-y_tr_s = y_scaler.transform(y_tr.values.reshape(-1,1)).flatten()
+# 1) fit scaler on training X
+scaler       = StandardScaler()
+X_tr_flat    = X_tr.reshape(n_tr, L * D)
+X_tr_s_flat  = scaler.fit_transform(X_tr_flat)
+X_tr_s       = X_tr_s_flat.reshape(n_tr, L, D)
 
-# 2) train
-model = train_lstm(
-    X_train=X_tr_s,
-    y_train=y_tr_s,
-    lookback=lookback,
-    num_features=num_features,
-    units=32,
-    epochs=50,
-    batch_size=16
+# 2) apply to test X
+n_te         = X_te.shape[0]
+X_te_flat    = X_te.reshape(n_te, L * D)
+X_te_s_flat  = scaler.transform(X_te_flat)
+X_te_s       = X_te_s_flat.reshape(n_te, L, D)
+
+# === scale y ===
+y_scaler     = StandardScaler()
+y_tr_s       = y_scaler.fit_transform(y_tr.values.reshape(-1, 1)).flatten()
+y_te_s       = y_scaler.transform(y_te.values.reshape(-1, 1)).flatten()
+
+# === re‑train or re‑evaluate on scaled data ===
+if model_type == "Huber":
+    hub_scaled = train_huber(
+        X_tr_s.reshape(n_tr, L * D),
+        y_tr_s
+    )
+    y_pred_te_s = hub_scaled.predict(X_te_s.reshape(n_te, L * D))
+else:
+    lstm_scaled = train_lstm(
+        X_tr_s, y_tr_s,
+        lookback=lookback,
+        num_features=D,
+        units=32, epochs=50, batch_size=16
+    )
+    y_pred_te_s = lstm_scaled.predict(X_te_s).flatten()
+
+# inverse‑scale back to original units
+y_pred = pd.Series(
+    y_scaler.inverse_transform(y_pred_te_s.reshape(-1, 1)).flatten(),
+    index=y_te.index if model_type=="Huber" else idx_te
 )
 
-# 3) predict & invert
-y_pred_s = model.predict(X_te_s).flatten()
-y_pred   = pd.Series(
-    y_scaler.inverse_transform(y_pred_s.reshape(-1,1)).flatten(),
-    index=y_te.index
-)
-
-# 4) now your plot and metrics will make sense
+# 6) report backtest error & plots
 mae  = (y_te - y_pred).abs().mean()
 rmse = np.sqrt(((y_te - y_pred)**2).mean())
 st.write({"MAE": f"{mae:.3f}", "RMSE": f"{rmse:.3f}"})
@@ -180,7 +205,7 @@ ax2.set_ylabel("Avg width")
 ax.legend(loc="upper left");  ax2.legend(loc="upper right")
 st.pyplot(fig)
 
-# 8) Backtest w/ band
+# 8) Backtest w/ Optimized Range Band
 sigma = (y_te - y_pred).std()
 lo, hi = y_pred - α_opt*sigma, y_pred + α_opt*sigma
 fig, ax = plt.subplots()
@@ -191,7 +216,5 @@ ax.fill_between(y_te.index, lo, hi, color="orange", alpha=0.3,
 ax.set_title("Backtest w/ Optimized Range Band")
 ax.legend()
 st.pyplot(fig)
-
-
 
 st.success("✅ Models trained and plots rendered correctly, good work David!")
