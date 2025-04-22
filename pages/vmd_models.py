@@ -122,14 +122,27 @@ if model_type == "Huber":
     model  = HuberRegressor().fit(X_tr, y_tr)
     y_pred = pd.Series(model.predict(X_te), index=y_te.index)
 else:
-    X_tr, y_tr, X_te, y_te, idx_tr, idx_te = prepare_lstm(series, lookback, horizon, split_date, alpha, K, tol)
-    m = Sequential([ Input(shape=(lookback, K)), LSTM(32), Dense(1) ])
-    m.compile("adam","mse")
-    m.fit(X_tr, y_tr, validation_split=0.1,
-          epochs=50, batch_size=16,
-          callbacks=[EarlyStopping(patience=5,restore_best_weights=True)],
-          verbose=0)
+    X_tr, y_tr_arr, X_te, y_te_arr, idx_tr, idx_te = prepare_lstm(
+        series, lookback, horizon, split_date, alpha, K, tol
+    )
+    # convert to Series so .index works
+    y_tr = pd.Series(y_tr_arr, index=idx_tr)
+    y_te = pd.Series(y_te_arr, index=idx_te)
+
+    # build simple LSTM
+    m = Sequential([Input(shape=(lookback, K)), LSTM(32), Dense(1)])
+    m.compile("adam", "mse")
+    m.fit(
+        X_tr,
+        y_tr,
+        validation_split=0.1,
+        epochs=50,
+        batch_size=16,
+        callbacks=[EarlyStopping(patience=5, restore_best_weights=True)],
+        verbose=0,
+    )
     y_pred = pd.Series(m.predict(X_te).flatten(), index=idx_te)
+
 
 # 6) Metrics & plots
 mae  = (y_te - y_pred).abs().mean()
