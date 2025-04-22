@@ -19,6 +19,16 @@ st.sidebar.header("⚙️ Model Configuration")
 model_type      = st.sidebar.selectbox("Model Type", ["Huber", "LSTM"])
 coverage_target = st.sidebar.slider("Calibration target coverage", 0.80, 0.99, 0.95, 0.01)
 
+@st.cache_data(show_spinner=False)
+def decompose_vmd(series: pd.Series, alpha: float, K: int, tol: float) -> pd.DataFrame:
+    # note: tau=0.0, DC=0, init=1 are hard‑coded here
+    u, _, _ = VMD(series.values, alpha, 0.0, K, 0, 1, tol)
+    return pd.DataFrame(
+        u.T,
+        index=series.index,
+        columns=[f"mode_{i+1}" for i in range(u.shape[0])]
+    )
+
 TABLES = {
     "WTI Crude (FRED)": (
         "bond_stocks", "WTI Crude Oil"
