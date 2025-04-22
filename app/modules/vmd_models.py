@@ -64,14 +64,18 @@ def prepare_vmd_ml_data(
 
     return X_tr, y_tr, X_te, y_te
 
-def train_huber(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    **hub_kwargs
-) -> HuberRegressor:
-    # flatten
-    n, L, D = X_train.shape
-    Xf = X_train.reshape(n, L*D)
+def train_huber(X_train, y_train, **hub_kwargs) -> HuberRegressor:
+    arr = np.asarray(X_train)
+    # if 3D, flatten window & feature dims
+    if arr.ndim == 3:
+        n, L, D = arr.shape
+        Xf = arr.reshape(n, L * D)
+    # if 2D, use as‑is
+    elif arr.ndim == 2:
+        Xf = arr
+    else:
+        raise ValueError(f"train_huber got array with ndim={arr.ndim}")
+    
     hub = HuberRegressor(**hub_kwargs)
     hub.fit(Xf, y_train)
     return hub
