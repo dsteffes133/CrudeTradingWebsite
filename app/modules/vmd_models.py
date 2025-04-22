@@ -19,7 +19,7 @@ def decompose_vmd(
     tol: float   = 1e-7
 ) -> pd.DataFrame:
     """Run VMD and return K mode components as a DataFrame."""
-    u, u_hat, omega = VMD(series.values, alpha, tau, K, DC, init, tol)
+    u, _, _ = VMD(series.values, alpha, tau, K, DC, init, tol)
     return pd.DataFrame(
         u.T,
         index=series.index,
@@ -35,9 +35,11 @@ def prepare_vmd_ml_data(
     vmd_kwargs: dict = dict(alpha=2000.0, tau=0.0, K=5, DC=0, init=1, tol=1e-7)
 ):
     """
-    Build X/y arrays for both Huber (flattened) and LSTM (3D) training:
-      • X: shape (N, lookback, D) where D = K + engineered_feature_count
+    Build X/y arrays *and* their corresponding index arrays for both Huber
+    (flattened) and LSTM (3D) training:
+      • X: shape (N, lookback, D) where D = K + feature_count
       • y: shape (N,)
+      • idxs: list of pd.Timestamp of length N
     """
     # 1) load & forward‑fill
     full = load_aligned(table)[series].ffill()
@@ -47,19 +49,26 @@ def prepare_vmd_ml_data(
     feats = extract_aggregated_features(full, lookback)
     # 4) align and drop NaNs
     data = pd.concat([comps, feats], axis=1).dropna()
-    n = len(data) - horizon - lookback + 1
+    # we will predict full.shift(-horizon) for each window ending at i
+    dates = data.index[lookback-1 : len(data)-horizon]
+    n = len(dates)
 
-    X, y = [], []
-    for i in range(lookback - 1, lookback - 1 + n):
+    X, y, idxs = [], [], []
+    for i, date in enumerate(dates, start=lookback-1):
         window = data.iloc[i - lookback + 1 : i + 1].values  # (lookback, D)
         X.append(window)
         y.append(float(full.iloc[i + horizon]))
+        idxs.append(full.index[i])
+
     X = np.stack(X)  # (N, lookback, D)
     y = np.array(y)  # (N,)
 
     # train/test split by fraction
-    split_i = int(len(X) * split_frac)
-    return X[:split_i], y[:split_i], X[split_i:], y[split_i:]
+    split_i = int(n * split_frac)
+    return (
+        X[:split_i], y[:split_i], np.array(idxs[:split_i]),
+        X[split_i:], y[split_i:], np.array(idxs[split_i:])
+    )
 
 def train_huber(X_train, y_train, **hub_kwargs) -> HuberRegressor:
     """
@@ -108,3 +117,4 @@ def train_lstm(
         verbose=0
     )
     return model
+
