@@ -12,7 +12,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 from app.modules.data_utils import load_aligned
 from app.modules.ml_utils import extract_aggregated_features
-from app.modules.vmd_models import train_huber, train_lstm, decompose_vmd, prepare_vmd_ml_data
+from app.modules.vmd_models import train_huber, train_lstm, prepare_vmd_ml_data
 
 # ──────────────────────────────────────────────────────────────────────────────
 st.sidebar.header("⚙️ Model Configuration")
