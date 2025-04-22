@@ -66,8 +66,13 @@ def prepare_huber(series, lookback, horizon, split_date, alpha, K, tol):
     df = X.join(y.rename("target")).dropna()
     train = df[df.index <= split_date]
     test  = df[df.index  > split_date]
-    return (train.drop("target",1), train.target,
-            test.drop("target",1),  test.target)
+    return (
+    train.drop(columns="target"),
+    train["target"],
+    test.drop(columns="target"),
+    test["target"],
+)
+
 
 def prepare_lstm(series, lookback, horizon, split_date, alpha, K, tol):
     full = series
