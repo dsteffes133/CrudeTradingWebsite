@@ -99,53 +99,59 @@ if run_btn:
             st.pyplot(fig)
 
     # --- LSTM pipeline ---------------------------------------------------------
-    if do_lstm:
-        st.markdown("## 🤖 LSTM Model")
+# … earlier code …
+if do_lstm:
+    st.markdown("## 🤖 LSTM Model")
 
-        X_tr, y_tr, X_te, y_te = prepare_lstm_data(
-            table=tbl,
-            series=series,
-            lookback=int(lookback),
-            horizon=int(horizon),
-            split_date=str(split_date),
-            vmd_kwargs=dict(alpha=alpha, tau=0.0, K=K, DC=0, init=1, tol=tol)
-        )
-        model = train_lstm(
-            X_train=X_tr, y_train=y_tr,
-            lookback=int(lookback), K=comps.shape[1],
-            units=32, epochs=50, batch_size=16
-        )
+    X_tr, y_tr, X_te, y_te = prepare_lstm_data(
+        table=tbl,
+        series=series,
+        lookback=int(lookback),
+        horizon=int(horizon),
+        split_date=str(split_date),
+        vmd_kwargs=dict(alpha=alpha, tau=0.0, K=K, DC=0, init=1, tol=tol)
+    )
 
-        # Training history (if available)
-        if hasattr(model, "history"):
-            hist = model.history.history
-            fig, ax = plt.subplots(figsize=(6, 2))
-            ax.plot(hist["loss"],  label="train loss")
-            ax.plot(hist["val_loss"], label="val loss")
-            ax.set_title("LSTM Training History")
-            st.pyplot(fig)
+    model = train_lstm(
+        X_tr,
+        y_tr,
+        int(lookback),
+        comps.shape[1],
+        units=32,
+        epochs=50,
+        batch_size=16
+    )
 
-        # Predict & backtest
-        y_pred_te = model.predict(X_te).flatten()
-        fig, ax = plt.subplots(figsize=(8, 2.5))
-        ax.plot(y_te.index, y_te, label="Actual")
-        ax.plot(y_te.index, y_pred_te, label="Predicted")
-        ax.set_title("LSTM: Test Actual vs Predicted")
-        ax.legend()
+    # plot training history if it's there
+    if hasattr(model, "history"):
+        hist = model.history.history
+        fig, ax = plt.subplots(figsize=(6, 2))
+        ax.plot(hist["loss"],  label="train loss")
+        ax.plot(hist["val_loss"], label="val loss")
+        ax.set_title("LSTM Training History")
         st.pyplot(fig)
 
-        # Residuals & distribution
-        resid_l = y_te - y_pred_te
-        col1, col2 = st.columns(2)
-        with col1:
-            fig, ax = plt.subplots(figsize=(4, 2))
-            ax.plot(resid_l.index, resid_l); ax.axhline(0, color="k")
-            ax.set_title("Residuals Over Time")
-            st.pyplot(fig)
-        with col2:
-            fig, ax = plt.subplots(figsize=(4, 2))
-            ax.hist(resid_l, bins=30, edgecolor="k")
-            ax.set_title("Error Distribution")
-            st.pyplot(fig)
+    # backtest
+    y_pred_te = model.predict(X_te).flatten()
+    fig, ax = plt.subplots(figsize=(8, 2.5))
+    ax.plot(y_te.index, y_te, label="Actual")
+    ax.plot(y_te.index, y_pred_te, label="Predicted")
+    ax.set_title("LSTM: Test Actual vs Predicted")
+    ax.legend()
+    st.pyplot(fig)
+
+    # residual diagnostics
+    resid_l = y_te - y_pred_te
+    col1, col2 = st.columns(2)
+    with col1:
+        fig, ax = plt.subplots(figsize=(4, 2))
+        ax.plot(resid_l.index, resid_l); ax.axhline(0, color="k")
+        ax.set_title("Residuals Over Time")
+        st.pyplot(fig)
+    with col2:
+        fig, ax = plt.subplots(figsize=(4, 2))
+        ax.hist(resid_l, bins=30, edgecolor="k")
+        ax.set_title("Error Distribution")
+        st.pyplot(fig)
 
     st.success("✅ Models trained and plots rendered correctly, good work David!")
