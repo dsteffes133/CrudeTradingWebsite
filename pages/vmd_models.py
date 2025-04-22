@@ -14,6 +14,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 from app.modules.data_utils import load_aligned
 from app.modules.ml_utils import extract_aggregated_features
+from app.modules.vmd_models import train_lstm
 
 # —————————————————————————————————————————————————————————————
 st.sidebar.header("⚙️ Model Configuration")
@@ -125,28 +126,38 @@ else:
     X_tr, y_tr_arr, X_te, y_te_arr, idx_tr, idx_te = prepare_lstm(
         series, lookback, horizon, split_date, alpha, K, tol
     )
-    # convert to Series so .index works
-    y_tr = pd.Series(y_tr_arr, index=idx_tr)
-    y_te = pd.Series(y_te_arr, index=idx_te)
+    num_features = X_tr.shape[2]
 
-    # build simple LSTM
-    m = Sequential([Input(shape=(lookback, K)), LSTM(32), Dense(1)])
-    m.compile("adam", "mse")
-    m.fit(
-        X_tr,
-        y_tr,
-        validation_split=0.1,
-        epochs=50,
-        batch_size=16,
-        callbacks=[EarlyStopping(patience=5, restore_best_weights=True)],
-        verbose=0,
-    )
-    y_pred = pd.Series(m.predict(X_te).flatten(), index=idx_te)
+# 1) scale
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler().fit(X_tr.reshape(-1, num_features))
+X_tr_s = scaler.transform(X_tr.reshape(-1, num_features)).reshape(X_tr.shape)
+X_te_s = scaler.transform(X_te.reshape(-1, num_features)).reshape(X_te.shape)
 
+y_scaler = StandardScaler().fit(y_tr.values.reshape(-1,1))
+y_tr_s = y_scaler.transform(y_tr.values.reshape(-1,1)).flatten()
 
-# 6) Metrics & plots
+# 2) train
+model = train_lstm(
+    X_train=X_tr_s,
+    y_train=y_tr_s,
+    lookback=lookback,
+    num_features=num_features,
+    units=32,
+    epochs=50,
+    batch_size=16
+)
+
+# 3) predict & invert
+y_pred_s = model.predict(X_te_s).flatten()
+y_pred   = pd.Series(
+    y_scaler.inverse_transform(y_pred_s.reshape(-1,1)).flatten(),
+    index=y_te.index
+)
+
+# 4) now your plot and metrics will make sense
 mae  = (y_te - y_pred).abs().mean()
-rmse = np.sqrt(((y_te-y_pred)**2).mean())
+rmse = np.sqrt(((y_te - y_pred)**2).mean())
 st.write({"MAE": f"{mae:.3f}", "RMSE": f"{rmse:.3f}"})
 
 fig, ax = plt.subplots()
