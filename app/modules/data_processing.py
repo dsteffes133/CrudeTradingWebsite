@@ -49,13 +49,15 @@ from sqlalchemy import create_engine
 # ------------------------------------------------------------------------------
 # 0.  PATHS & SQLITE ENGINE
 # ------------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parents[1]  # i.e. the app/ folder
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR     = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-DB_PATH      = DATA_DIR / "combined.db"
-ENGINE       = create_engine(f"sqlite:///{DB_PATH}", echo=False)
-
+DB_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:///{DATA_DIR / 'combined.db'}"
+)
+ENGINE = create_engine(DB_URL, echo=False)
 
 # ==============================================================================
 # 1.  GLOBAL & US‑SPECIFIC IMPORTS / EXPORTS  (Kpler API)

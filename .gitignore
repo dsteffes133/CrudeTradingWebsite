@@ -5,9 +5,15 @@ __pycache__/
 
 # VSCode settings
 .vscode/
+*.code-workspace
 
-# Virtualenv folder
+# Virtualenvs
 .venv/
 env/
 venv/
-kplerenv
+kplerenv/
+etl_venv/
+venv_app/
+
+# SQLite DB
+app/data/combined.db

@@ -1,0 +1,50 @@
+name: Daily ETL
+
+# Trigger nightly at 02:00 UTC, and allow manual runs
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+
+    # Make your API keys available from GitHub Secrets
+    env:
+      KPLER_EMAIL:   ${{ secrets.KPLER_EMAIL }}
+      KPLER_TOKEN:   ${{ secrets.KPLER_TOKEN }}
+      FRED_API_KEY:  ${{ secrets.FRED_API_KEY }}
+
+    steps:
+      # 1) Check out your repo
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: true    # so we can push back changes
+
+      # 2) Set up Python 3.11
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # 3) Install only the ETL dependencies
+      - name: Install ETL dependencies
+        run: pip install -r requirements_etl.txt
+
+      # 4) Run your ETL script (api_only by default)
+      - name: Run ETL
+        run: python -m etl.etl
+
+      # 5) Commit & push updated SQLite DB if it changed
+      - name: Commit updated DB
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/combined.db
+          if git diff --cached --quiet; then
+            echo "No changes to combined.db"
+          else
+            git commit -m "chore: daily ETL data update"
+            git push
+          fi
