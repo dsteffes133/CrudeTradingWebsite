@@ -11,20 +11,28 @@ from app.modules.data_utils import load_aligned
 
 def decompose_vmd(
     series: pd.Series,
-    alpha: float = 2000.0,
-    tau: float   = 0.0,
-    K: int       = 5,
-    DC: int      = 0,
-    init: int    = 1,
-    tol: float   = 1e-7
+    alpha: float,
+    tau: float,
+    K: int,
+    DC: bool,
+    init: int,
+    tol: float
 ) -> pd.DataFrame:
-    """Run VMD and return K mode components as a DataFrame."""
+    """
+    Run VMD and return K mode components as a DataFrame,
+    with index aligned to the returned signal length.
+    """
     u, _, _ = VMD(series.values, alpha, tau, K, DC, init, tol)
-    return pd.DataFrame(
+    n_pts = u.shape[1]
+    idx   = series.index[:n_pts]         # <-- truncate to match u’s time dimension
+
+    # Transpose so we get (time x modes)
+    modes = pd.DataFrame(
         u.T,
-        index=series.index,
+        index=idx,
         columns=[f"vmd_mode_{i+1}" for i in range(u.shape[0])]
     )
+    return modes
 
 def prepare_vmd_ml_data(
     table: str,
