@@ -53,11 +53,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR     = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
+# path to the local SQLite file (used if DATABASE_URL is not set)
+DB_PATH = DATA_DIR / "combined.db"
+
 DB_URL = os.getenv(
     "DATABASE_URL",
-    f"sqlite:///{DATA_DIR / 'combined.db'}"
+    f"sqlite:///{DB_PATH}"
 )
 ENGINE = create_engine(DB_URL, echo=False)
+
 
 # ==============================================================================
 # 1.  GLOBAL & US‑SPECIFIC IMPORTS / EXPORTS  (Kpler API)

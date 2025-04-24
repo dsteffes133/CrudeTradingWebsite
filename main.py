@@ -68,6 +68,12 @@ with st.sidebar:
 st.title("SOUTHBOW TRADING ANALYTICS")
 st.write("Use the sidebar to upload Excel files and ingest into the database.")
 
+if st.sidebar.button("🔄 Refresh API Now"):
+    with st.spinner("Running API pipelines..."):
+        dp.update_all()  # will write into Postgres thanks to DATABASE_URL
+    st.sidebar.success("API data refreshed!")
+
+
 st.subheader("📊  Current table sizes")
 status_cols = [
     ("bond_stocks",          "Macro / Market"),
