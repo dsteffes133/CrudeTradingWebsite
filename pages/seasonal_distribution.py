@@ -3,29 +3,28 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import altair as alt
+import matplotlib.pyplot as plt
 from sqlalchemy import text
 
 from app.modules.data_processing import ENGINE
 
 # —————————————————————————————————————————————————————————————
-# Helper to load & index any SQL table
-# —————————————————————————————————————————————————————————————
+# Helper to load & index any table
 @st.cache_data(show_spinner=False)
 def load_table(table_name: str) -> pd.DataFrame:
     with ENGINE.connect() as conn:
         df = pd.read_sql_query(text(f"SELECT * FROM {table_name}"), conn)
-    # find and set the date-like column as the index
+    # find first date‐like column and set as index
     for col in df.columns:
         if col.lower() in ("date", "index"):
             df[col] = pd.to_datetime(df[col])
             return df.set_index(col).sort_index()
-    raise KeyError(f"No date-like column found in {table_name}")
+    raise KeyError(f"No date column in {table_name}")
 
 # —————————————————————————————————————————————————————————————
 st.sidebar.header("📊 Seasonal & Distribution Explorer")
 
-# 1️⃣ Pick your table
+# pick table
 TABLES = {
     "Macro & Market":       "bond_stocks",
     "US Imports/Exports":   "us_imports_exports",
@@ -33,109 +32,69 @@ TABLES = {
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
 }
-category = st.sidebar.selectbox("Select table", list(TABLES.keys()))
-table_name = TABLES[category]
+cat = st.sidebar.selectbox("1️⃣ Select table", list(TABLES.keys()))
+table_name = TABLES[cat]
 
-# 2️⃣ Load and pick your series
+# load it
 df = load_table(table_name)
-series = st.sidebar.selectbox("Select series", df.columns.tolist())
+
+# pick series
+series = st.sidebar.selectbox("2️⃣ Select series", df.columns.tolist())
 ts = df[series].dropna()
 
 if ts.empty:
-    st.error("No data available for that series.")
+    st.error("No data for that series.")
     st.stop()
 
 st.title("📈 Seasonal & Distribution Explorer")
-st.markdown(f"**Series:** `{series}`  •  **Table:** `{table_name}`")
+st.markdown(f"**Series:** `{series}` from **{table_name}**")
 
 # —————————————————————————————————————————————————————————————
-# 1) Interactive Seasonal Plot
+# 1) Seasonal plot
 # —————————————————————————————————————————————————————————————
-season = ts.to_frame("value")
+# Prepare a pivot: index=month (1–12), columns=year, values=series
+season = ts.copy().to_frame("v")
 season["year"]  = season.index.year
 season["month"] = season.index.month
-
-# Long form for Altair
-df_long = (
+pivot = (
     season
-    .reset_index()
-    .rename(columns={"index": "date"})
+    .pivot_table(index="month", columns="year", values="v")
+    .sort_index()
 )
 
-# Compute monthly min/max (for band)
-band_df = (
-    df_long
-    .groupby("month")["value"]
-    .agg(min_v="min", max_v="max")
-    .reset_index()
+# compute min/max band
+min_band = pivot.min(axis=1)
+max_band = pivot.max(axis=1)
+
+fig1, ax1 = plt.subplots(figsize=(8,4))
+# plot each year
+for yr in pivot.columns:
+    ax1.plot(pivot.index, pivot[yr], label=str(yr), alpha=0.6)
+# shaded band
+ax1.fill_between(
+    pivot.index, min_band, max_band,
+    color="gray", alpha=0.2,
+    label="Min–Max range"
 )
+ax1.set_xticks(range(1,13))
+ax1.set_xlabel("Month")
+ax1.set_ylabel(series)
+ax1.set_title("Seasonal Plot (by Year)")
+ax1.legend(ncol=2, fontsize="small", loc="upper left")
 
-base = (
-    alt.Chart(df_long)
-    .encode(
-        x=alt.X("month:O", title="Month"),
-        y=alt.Y("value:Q", title=series),
-        color=alt.Color("year:O", title="Year"),
-        tooltip=[
-            alt.Tooltip("year:O", title="Year"),
-            alt.Tooltip("month:O", title="Month"),
-            alt.Tooltip("value:Q", title=series, format=".2f")
-        ],
-    )
-)
-
-# shaded min-max band
-band = (
-    alt.Chart(band_df)
-    .mark_area(color="lightgray", opacity=0.3)
-    .encode(
-        x="month:O",
-        y="min_v:Q",
-        y2="max_v:Q"
-    )
-)
-
-lines = base.mark_line(point=True)
-
-seasonal_chart = (
-    (band + lines)
-    .properties(width="container", height=350, title="Seasonal Plot by Year")
-    .interactive()
-)
-
-st.altair_chart(seasonal_chart, use_container_width=True)
+st.pyplot(fig1)
 
 # —————————————————————————————————————————————————————————————
-# 2) Interactive Distribution Plot
+# 2) Distribution + current value
 # —————————————————————————————————————————————————————————————
 latest = ts.iloc[-1]
 
-hist = (
-    alt.Chart(ts.rename("value").reset_index().rename(columns={"index": "date"}))
-    .mark_bar(color="steelblue")
-    .encode(
-        x=alt.X("value:Q", bin=alt.Bin(maxbins=40), title=series),
-        y=alt.Y("count()", title="Frequency"),
-        tooltip=[
-            alt.Tooltip("count()", title="Count"),
-            alt.Tooltip("value:Q", title=series, format=".2f")
-        ]
-    )
-)
+fig2, ax2 = plt.subplots(figsize=(8,3))
+ax2.hist(ts, bins=30, color="skyblue", edgecolor="white")
+ax2.axvline(latest, color="red", linewidth=2, label=f"Current: {latest:.2f}")
+ax2.set_xlabel(series)
+ax2.set_ylabel("Frequency")
+ax2.set_title("Historical Distribution")
+ax2.legend()
 
-rule = (
-    alt.Chart(pd.DataFrame({"value": [latest]}))
-    .mark_rule(color="red", strokeWidth=2)
-    .encode(
-        x="value:Q",
-        tooltip=[alt.Tooltip("value:Q", title="Current Value", format=".2f")]
-    )
-)
-
-dist_chart = (
-    (hist + rule)
-    .properties(width="container", height=300, title="Historical Distribution")
-    .interactive()
-)
-
-st.altair_chart(dist_chart, use_container_width=True)
+st.pyplot(fig2)
