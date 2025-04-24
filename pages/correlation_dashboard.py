@@ -33,6 +33,8 @@ TABLES = {
     "Global IE":            "global_imports_exports",
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
+    "Daily Pipeline":       "daily_pipeline",
+    "Daily Movement":       "daily_movement",
 }
 
 table1_label = st.sidebar.selectbox("1️⃣ Table for X-axis", list(TABLES.keys()), index=0)
