@@ -78,53 +78,67 @@ def train_lstm(X_train, y_train, lookback, num_features,
     )
     return model
 
-def forecast_vmd(series: pd.Series,
-                 lookback: int,
-                 horizon: int,
-                 model_type: str,
-                 vmd_kwargs: dict,
-                 lstm_kwargs: dict
+def forecast_vmd(
+    series: pd.Series,
+    lookback: int,
+    horizon: int,
+    model_type: str,
+    vmd_kwargs: dict,
+    lstm_kwargs: dict
 ) -> pd.Series:
     """
-    Recursively forecast `horizon` days ahead using VMD + either Huber or LSTM.
-    Returns a pd.Series indexed by date with the forecasts.
+    Recursively forecast `horizon` days ahead using VMD + either Huber or LSTM,
+    WITHOUT touching the DB. Returns a pd.Series of forecasts.
     """
+    # 1) Prepare the history entirely in-memory
     full = series.ffill().dropna()
+
+    # 2) Decompose & feature-engineer full history
     comps = decompose_vmd(full, **vmd_kwargs)
     feats = extract_aggregated_features(full, lookback)
     data = pd.concat([comps, feats], axis=1).dropna()
 
-    # build full X/y for training on all history
-    X_all, y_all, _, _, _, _ = prepare_vmd_ml_data(
-        table=None, series=None,  # we bypass table/series here
-        lookback=lookback, horizon=1, split_frac=1.0,
-        vmd_kwargs=vmd_kwargs
-    )
-    # note: you may prefer to refactor prepare_vmd_ml_data to accept a Series directly.
+    # 3) Build X_all, y_all for single-step training
+    X_all, y_all = [], []
+    # we predict next-day value, so y at i is full.iloc[i+1]
+    for i in range(lookback-1, len(data)-1):
+        window = data.iloc[i-lookback+1 : i+1].values  # (lookback, D)
+        X_all.append(window)
+        y_all.append(float(full.iloc[i+1]))
+    X_all = np.stack(X_all)
+    y_all = np.array(y_all)
 
-    # train on entire history
+    # 4) Train on all history
     if model_type == "Huber":
         model = train_huber(X_all, y_all)
-        pred_fn = lambda X: model.predict(X.reshape(1, -1))[0]
+        predict_one = lambda w: model.predict(w.reshape(1, -1))[0]
     else:
+        # X_all.shape == (N, lookback, D)
         model = train_lstm(
             X_all, y_all,
-            lookback, X_all.shape[2], **lstm_kwargs
+            lookback=lookback,
+            num_features=X_all.shape[2],
+            **lstm_kwargs
         )
-        pred_fn = lambda X: model.predict(X.reshape(1, X.shape[1], X.shape[2]))[0,0]
+        predict_one = lambda w: model.predict(w.reshape(1, lookback, w.shape[1]))[0, 0]
 
-    future = []
+    # 5) Recursive forecasting
+    future_vals = []
     temp_full = full.copy()
 
     for _ in range(horizon):
-        # recompute components & features on rolling window
         comps_roll = decompose_vmd(temp_full, **vmd_kwargs)
         feats_roll = extract_aggregated_features(temp_full, lookback)
         window = pd.concat([comps_roll, feats_roll], axis=1).dropna().iloc[-lookback:].values
-        yhat = pred_fn(window)
-        future.append(yhat)
+
+        yhat = predict_one(window)
+        future_vals.append(yhat)
+
+        # append to series for next iteration
         next_date = temp_full.index[-1] + pd.Timedelta(days=1)
         temp_full.loc[next_date] = yhat
 
-    idx = pd.date_range(series.index[-1]+pd.Timedelta(days=1), periods=horizon)
-    return pd.Series(future, index=idx, name="Forecast")
+    # return as a new Series
+    idx = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=horizon)
+    return pd.Series(future_vals, index=idx, name="VMD Forecast")
+
