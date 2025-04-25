@@ -1,5 +1,4 @@
 # Python artifacts
-__pycache__/
 *.py[cod]
 *.pyo
 
@@ -11,9 +10,14 @@ __pycache__/
 .venv/
 env/
 venv/
-kplerenv/
-etl_venv/
 venv_app/
 
 # SQLite DB
 app/data/combined.db
+
+# Kpler ETL venv
+/kplerenv/
+
+# Python caches
+__pycache__/
+/etl/__pycache__/

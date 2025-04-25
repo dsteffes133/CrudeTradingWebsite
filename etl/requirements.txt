@@ -1,0 +1,9 @@
+# kpler_requirements.txt
+pandas<=1.5.3,>=1.0.0
+requests<=2.31.0,>=2.20.0
+kpler.sdk==1.0.53
+python-dotenv
+SQLAlchemy
+psycopg2-binary
+fredapi
+

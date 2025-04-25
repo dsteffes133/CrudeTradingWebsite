@@ -1,6 +1,0 @@
-pandas>=1.5.3,<3.0
-SQLAlchemy==2.0.40
-openpyxl==3.1.5       # for reading .xlsx/.xlsm files
-kpler.sdk==1.0.53     # your Kpler API client
-fredapi==0.5.2        # for FRED macro series
-python-dotenv==1.1.0
