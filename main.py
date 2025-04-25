@@ -10,6 +10,8 @@ Launch with:
 """
 
 import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -68,10 +70,21 @@ with st.sidebar:
 st.title("SOUTHBOW TRADING ANALYTICS")
 st.write("Use the sidebar to upload Excel files and ingest into the database.")
 
-if st.sidebar.button("🔄 Refresh API Now"):
-    with st.spinner("Running API pipelines..."):
-        dp.update_all()  # will write into Postgres thanks to DATABASE_URL
-    st.sidebar.success("API data refreshed!")
+if st.sidebar.button("🔄 Refresh Kpler & FRED"):
+    with st.spinner("Running ETL…"):
+        # Call your isolated ETL script via PowerShell
+        result = subprocess.run([
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", "etl\\run.ps1"
+        ], capture_output=True, text=True)
+
+        if result.returncode == 0:
+            st.sidebar.success("✅ ETL complete!")
+        else:
+            st.sidebar.error("❌ ETL failed:")
+            st.sidebar.text(result.stderr)
 
 
 st.subheader("📊  Current table sizes")
