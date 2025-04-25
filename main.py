@@ -70,21 +70,20 @@ with st.sidebar:
 st.title("SOUTHBOW TRADING ANALYTICS")
 st.write("Use the sidebar to upload Excel files and ingest into the database.")
 
+st.sidebar.header("Data Refresh")
 if st.sidebar.button("🔄 Refresh Kpler & FRED"):
     with st.spinner("Running ETL…"):
-        # Call your isolated ETL script via PowerShell
-        result = subprocess.run([
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "etl\\run.ps1"
-        ], capture_output=True, text=True)
-
-        if result.returncode == 0:
-            st.sidebar.success("✅ ETL complete!")
-        else:
-            st.sidebar.error("❌ ETL failed:")
-            st.sidebar.text(result.stderr)
+        # Use the same Python that Streamlit is running under
+        result = subprocess.run(
+            [sys.executable, "-u", "etl/kpler_fetch.py"],
+            capture_output=True,
+            text=True,
+        )
+    if result.returncode == 0:
+        st.sidebar.success("✅ ETL complete!")
+    else:
+        st.sidebar.error("❌ ETL failed!")
+        st.sidebar.text(result.stderr)
 
 
 st.subheader("📊  Current table sizes")
