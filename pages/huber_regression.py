@@ -16,6 +16,7 @@ coverage_target = st.sidebar.slider("Calibration coverage", 0.80, 0.99, 0.95, 0.
 st.sidebar.header("📊 Series Selection")
 TABLES = {
     "WTI Crude (FRED)": ("bond_stocks", "WTI Crude Oil"),
+    "WCS Houston": ("pricing_vector", "WCS Houston weighted average month 1, Houston close, diff index, USD/bl, fip, FILLED FORWARD")
     # add more series here…
 }
 series_label = st.sidebar.selectbox("Series to model", list(TABLES.keys()))

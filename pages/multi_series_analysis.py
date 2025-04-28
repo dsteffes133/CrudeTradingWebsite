@@ -32,6 +32,8 @@ CATEGORY_TO_TABLE = {
     "Global IE":            "global_imports_exports",
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
+    "Daily Pipeline":      "daily_pipeline",
+    "Daily Movement":      "daily_movement",
 }
 
 # —————————————————————————————————————————————————————————————
