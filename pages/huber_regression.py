@@ -22,6 +22,7 @@ coverage_target = st.sidebar.slider(
 st.sidebar.header("📊 Series & Splits")
 TABLES = {
     "WTI Crude (FRED)": ("bond_stocks", "WTI Crude Oil"),
+    "WCS Houston": ("pricing_vector", "WCS Houston weighted average month 1, Houston close, diff index, USD/bl, fip, FILLED FORWARD"),
     # add more here…
 }
 series_label    = st.sidebar.selectbox("Series to model", list(TABLES.keys()))
