@@ -13,18 +13,17 @@ def decompose_vmd(series: pd.Series) -> pd.DataFrame:
     u, _, _ = VMD(series.values, **config.VMD_KWARGS)
     n_pts = u.shape[1]
     idx   = series.index[:n_pts]
-    modes = pd.DataFrame(
+    return pd.DataFrame(
         u.T,
         index=idx,
         columns=[f"vmd_mode_{i+1}" for i in range(u.shape[0])]
     )
-    return modes
 
 def prepare_vmd_ml_data(table: str, series_col: str, split_frac: float = 0.85):
-    full = load_aligned(table)[series_col].ffill().dropna()
+    full  = load_aligned(table)[series_col].ffill().dropna()
     comps = decompose_vmd(full)
     feats = extract_aggregated_features(full, config.LOOKBACK)
-    data = pd.concat([comps, feats], axis=1).dropna()
+    data  = pd.concat([comps, feats], axis=1).dropna()
 
     X, y, idxs = [], [], []
     for i in range(config.LOOKBACK - 1, len(data) - 1):
@@ -53,16 +52,18 @@ def train_huber(X_train, y_train) -> HuberRegressor:
     hub.fit(Xf, y_train)
     return hub
 
-def forecast_vmd(series: pd.Series) -> pd.Series:
+def forecast_vmd(series: pd.Series, horizon: int = config.HORIZON) -> pd.Series:
+    """
+    Recursively forecast `horizon` days ahead using VMD + Huber.
+    """
     lookback = config.LOOKBACK
-    horizon  = config.HORIZON
+    full     = series.ffill().dropna()
 
-    full  = series.ffill().dropna()
+    # build feature matrix on entire history
     comps = decompose_vmd(full)
     feats = extract_aggregated_features(full, lookback)
     data  = pd.concat([comps, feats], axis=1).dropna()
 
-    # Build full training arrays
     X_all, y_all = [], []
     for i in range(lookback - 1, len(data) - 1):
         window = data.iloc[i - lookback + 1 : i + 1].values
@@ -71,13 +72,13 @@ def forecast_vmd(series: pd.Series) -> pd.Series:
     X_all = np.stack(X_all)
     y_all = np.array(y_all)
 
-    # Train on all history with Huber
+    # train final Huber
     model = train_huber(X_all, y_all)
     predict_one = lambda w: model.predict(w.reshape(1, -1))[0]
 
-    # Recursive forecasting
+    # recursive forecast
     future_vals = []
-    temp_full = full.copy()
+    temp_full   = full.copy()
     for _ in range(horizon):
         comps_roll = decompose_vmd(temp_full)
         feats_roll = extract_aggregated_features(temp_full, lookback)
@@ -87,9 +88,9 @@ def forecast_vmd(series: pd.Series) -> pd.Series:
 
         yhat = predict_one(window)
         future_vals.append(yhat)
-        next_date = temp_full.index[-1] + pd.Timedelta(days=1)
-        temp_full.loc[next_date] = yhat
+        temp_full.loc[temp_full.index[-1] + pd.Timedelta(days=1)] = yhat
 
-    idx = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=horizon)
-    return pd.Series(future_vals, index=idx, name='VMD Forecast')
+    idx = pd.date_range(start=series.index[-1] + pd.Timedelta(days=1), periods=horizon)
+    return pd.Series(future_vals, index=idx, name="VMD Forecast")
+
 
