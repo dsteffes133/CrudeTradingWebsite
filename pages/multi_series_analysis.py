@@ -28,8 +28,6 @@ def load_table(table_name: str) -> pd.DataFrame:
 # —————————————————————————————————————————————————————————————
 CATEGORY_TO_TABLE = {
     "Macro & Market":       "bond_stocks",
-    "US Imports / Exports": "us_imports_exports",
-    "Global IE":            "global_imports_exports",
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
     "Daily Pipeline":      "daily_pipeline",

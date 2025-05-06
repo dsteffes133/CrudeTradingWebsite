@@ -12,8 +12,6 @@ MASTER_START = pd.Timestamp("2021-11-15")
 TABLE_OFFSETS = {
     "pricing_vector":        0,
     "bond_stocks":           0,
-    "us_imports_exports":    0,
-    "global_imports_exports":0,
     "wpr_sliding":           0,
     "daily_pipeline":        0,
     "daily_movement":        0,

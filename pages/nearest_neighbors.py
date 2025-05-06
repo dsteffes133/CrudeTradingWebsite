@@ -17,8 +17,7 @@ st.sidebar.header("🔍 Nearest Neighbors")
 mode = st.sidebar.radio("Mode", ["Series", "Table"])
 lookback = st.sidebar.slider("Lookback window (days)", 5, 90, 30)
 table = st.sidebar.selectbox("Select table", [
-    "pricing_vector","bond_stocks","us_imports_exports",
-    "global_imports_exports","wpr_sliding",
+    "pricing_vector","bond_stocks","wpr_sliding",
     "daily_pipeline","daily_movement"
 ])
 query_date = st.sidebar.date_input("Query date")

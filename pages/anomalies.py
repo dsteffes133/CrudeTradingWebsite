@@ -33,13 +33,10 @@ st.sidebar.header("🔍 Anomaly Dashboard")
 
 # 1) choose your table
 category = st.sidebar.selectbox("Data category", [
-    "Macro & Market", "US Imports / Exports",
-    "Global IE", "WPR Sliding", "Pricing Vector"
+    "Macro & Market",  "WPR Sliding", "Pricing Vector"
 ])
 table_map = {
     "Macro & Market":       "bond_stocks",
-    "US Imports / Exports": "us_imports_exports",
-    "Global IE":            "global_imports_exports",
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
 }

@@ -29,8 +29,6 @@ st.sidebar.header("🔍 Scatter & Regression")
 # 2) Let the user pick any two tables and series
 TABLES = {
     "Macro & Market":       "bond_stocks",
-    "US Imports/Exports":   "us_imports_exports",
-    "Global IE":            "global_imports_exports",
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
     "Daily Pipeline":       "daily_pipeline",

@@ -1,4 +1,3 @@
-kpler-sdk
 absl-py==2.2.2
 altair==5.5.0
 asttokens==3.0.0

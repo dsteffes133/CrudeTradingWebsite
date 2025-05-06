@@ -27,8 +27,6 @@ st.sidebar.header("📊 Seasonal & Distribution Explorer")
 # pick table
 TABLES = {
     "Macro & Market":       "bond_stocks",
-    "US Imports/Exports":   "us_imports_exports",
-    "Global IE":            "global_imports_exports",
     "WPR Sliding":          "wpr_sliding",
     "Pricing Vector":       "pricing_vector",
 }
