@@ -93,11 +93,6 @@ statsmodels
 streamlit
 stumpy
 tenacity
-tensorboard
-tensorboard-data-server
-tensorflow
-tensorflow-io-gcs-filesystem
-tensorflow_keras
 termcolor
 threadpoolctl
 toml
