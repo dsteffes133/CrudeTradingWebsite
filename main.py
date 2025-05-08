@@ -1,14 +1,3 @@
-"""
-Streamlit front-end for Integrated Trading Analytics System
-===========================================================
-• Upload latest Excel files (WPR, CRUDE SD, VectorDBPricing)
-• Ingest them into the shared `combined.db` (SQLite)
-• Show simple status / row counts after each action
-
-Launch with:
-    streamlit run main.py
-"""
-
 import os
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +9,10 @@ from sqlalchemy import create_engine
 # project imports
 from app.modules import data_processing as dp
 from app.modules.data_processing import DB_PATH, ENGINE
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NEW: Import the FRED update function
+from app.modules.data_processing import update_macro_table
 
 st.set_page_config(page_title="Southbow Trading Analytics")
 
@@ -39,7 +32,7 @@ def _success(msg: str):
     st.success(msg)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Sidebar: File uploads
+# Sidebar: File uploads & FRED refresh
 # ──────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("📡  Upload Excel Files")
@@ -59,29 +52,43 @@ with st.sidebar:
             if uploaded_price:
                 merged = dp.import_vector_db_pricing(uploaded_price, save_sql=True)
                 _success(f"Pricing vector imported ({len(merged):,} rows)")
-        # Clear cache so counts update
+        _count_rows.clear()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # NEW: FRED refresh button
+    st.header("🔄 Macro / FRED Refresh")
+    if st.button("Refresh FRED Data"):
+        with st.spinner("Pulling data from FRED…"):
+            try:
+                df = update_macro_table()
+                _success(f"FRED updated ({len(df):,} rows)")
+            except Exception as e:
+                st.error("❌ FRED update failed")
+                st.text(str(e))
         _count_rows.clear()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main Area: Status & Dashboard
 # ──────────────────────────────────────────────────────────────────────────────
 st.title("SOUTHBOW TRADING ANALYTICS")
-st.write("Use the sidebar to upload Excel files and ingest into the database.")
-
-
+st.write("Use the sidebar to upload Excel files and pull FRED data into the database.")
 
 st.subheader("📊  Current table sizes")
 status_cols = [
-    ("bond_stocks",          "Macro / Market"),
-    ("wpr_truth",            "WPR Truth"),
-    ("wpr_sliding",          "WPR Sliding"),
-    ("daily_pipeline",       "Pipeline Daily"),
-    ("daily_movement",       "Movement Daily"),
-    ("pricing_vector",       "Pricing Vector"),
+    ("bond_stocks",    "Macro / Market"),    # now kept, since FRED writes to bond_stocks
+    ("wpr_truth",      "WPR Truth"),
+    ("wpr_sliding",    "WPR Sliding"),
+    ("daily_pipeline", "Pipeline Daily"),
+    ("daily_movement","Movement Daily"),
+    ("pricing_vector","Pricing Vector"),
 ]
 rows = {nice: _count_rows(tbl) for tbl, nice in status_cols}
 
-df_status = pd.Series(rows, name="Rows").rename_axis("Table").to_frame()
+df_status = (
+    pd.Series(rows, name="Rows")
+      .rename_axis("Table")
+      .to_frame()
+)
 st.dataframe(df_status, use_container_width=True)
 
 st.caption(
